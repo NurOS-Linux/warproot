@@ -19,6 +19,11 @@ import (
 
 const version = "1.0.0"
 
+// devNull implements io.Writer that discards everything. Used when logging is disabled.
+type devNull struct{}
+
+func (d *devNull) Write(p []byte) (int, error) { return len(p), nil }
+
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage: %s [OPTION] NEWROOT [COMMAND [ARG]...]
 Run COMMAND with root directory set to NEWROOT.
@@ -29,7 +34,7 @@ Options:
   --skip-chdir              do not change working directory to '/'
   --mount-proc              mount proc filesystem inside NEWROOT
   --preserve-environment    do not clear environment variables
-  --loglevel=LEVEL          log verbosity: fatal|panic|warning|info (default: info)
+  --loglevel=LEVEL          log verbosity: null|err|warning|info|debug (default: info)
   --help                    display this help and exit
   --version                 output version information and exit
 
@@ -38,17 +43,6 @@ If COMMAND is not specified, run '/bin/sh'.
 }
 
 func main() {
-	logFile, err := os.OpenFile("latest.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
-		os.Exit(1)
-	}
-	defer logFile.Close()
-	log.SetOutput(logFile)
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
-	log.Println("Program started")
-
 	var (
 		userspec    string
 		groups      string
@@ -78,23 +72,75 @@ func main() {
 	flag.StringVar(&archive, "archive", "", "archive file (placeholder)")
 	flag.BoolVar(&enter, "enter", false, "enter chroot after setup")
 	flag.StringVar(&cmdStr, "cmd", "", "command to run inside chroot")
-	flag.StringVar(&logLevel, "loglevel", "info", "logging level: fatal|panic|warning|info")
+	flag.StringVar(&logLevel, "loglevel", "info", "logging level: null|err|warning|info|debug")
 
 	flag.Parse()
 
-	logFatal := func(msg string) {
-		log.Printf("[Fatal] %s", msg)
+	// Logging levels
+	const (
+		levelNull = iota
+		levelError
+		levelWarning
+		levelInfo
+		levelDebug
+	)
+	var level int
+	switch strings.ToLower(logLevel) {
+	case "", "info":
+		level = levelInfo
+	case "warning", "warn":
+		level = levelWarning
+	case "err", "error", "fatal", "panic":
+		level = levelError
+	case "debug":
+		level = levelDebug
+	case "null", "none":
+		level = levelNull
+	default:
+		level = levelInfo
 	}
-	logWarning := func(msg string) {
-		if logLevel == "warning" || logLevel == "info" {
-			log.Printf("[Warning] %s", msg)
+
+	// Open log file only if not null
+	var logFile *os.File
+	if level != levelNull {
+		lf, err := os.OpenFile("latest.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
+			os.Exit(1)
+		}
+		logFile = lf
+		log.SetOutput(logFile)
+		defer logFile.Close()
+	} else {
+		// discard logs (do not create latest.log)
+		log.SetOutput(new(devNull))
+	}
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	// helper logging functions
+	logDebug := func(format string, args ...interface{}) {
+		if level >= levelDebug {
+			log.Printf("[Debug] "+format, args...)
 		}
 	}
-	logInfo := func(msg string) {
-		if logLevel == "info" {
-			log.Printf("[Info] %s", msg)
+	logInfo := func(format string, args ...interface{}) {
+		if level >= levelInfo {
+			log.Printf("[Info] "+format, args...)
 		}
 	}
+	logWarn := func(format string, args ...interface{}) {
+		if level >= levelWarning {
+			log.Printf("[Warning] "+format, args...)
+		}
+	}
+	logErr := func(format string, args ...interface{}) {
+		if level >= levelError {
+			log.Printf("[Error] "+format, args...)
+		}
+	}
+
+	// Program start
+	logWarn("Program started")
 
 	if help {
 		usage()
@@ -111,7 +157,7 @@ func main() {
 	var cmdArgs []string
 	if target != "" {
 		newRoot = target
-		log.Printf("Using target flag as NEWROOT: %s", newRoot)
+		logDebug("Using target flag as NEWROOT: %s", newRoot)
 		if flag.NArg() > 0 {
 			cmdArgs = flag.Args()
 		}
@@ -119,11 +165,11 @@ func main() {
 		if flag.NArg() == 0 {
 			fmt.Fprintf(os.Stderr, "missing NEWROOT argument\n")
 			usage()
-			logWarning("Missing NEWROOT argument, exiting")
+			logWarn("Missing NEWROOT argument, exiting")
 			os.Exit(1)
 		}
 		newRoot = flag.Arg(0)
-		log.Printf("Using positional NEWROOT: %s", newRoot)
+		logDebug("Using positional NEWROOT: %s", newRoot)
 		if flag.NArg() > 1 {
 			cmdArgs = flag.Args()[1:]
 		}
@@ -131,16 +177,16 @@ func main() {
 
 	if enter && cmdStr != "" {
 		cmdArgs = []string{"/bin/sh", "-c", cmdStr}
-		log.Printf("Custom command set via -cmd: %s", cmdStr)
+		logDebug("Custom command set via -cmd: %s", cmdStr)
 	}
 	if len(cmdArgs) == 0 {
 		cmdArgs = []string{"/bin/sh"}
 	}
-	log.Printf("Command to execute: %v", cmdArgs)
+	logDebug("Command to execute: %v", cmdArgs)
 
 	if os.Geteuid() != 0 {
 		fmt.Fprintln(os.Stderr, "chroot: you must be root")
-		logWarning("Not running as root, exiting")
+		logWarn("Not running as root, exiting")
 		os.Exit(1)
 	}
 
@@ -152,15 +198,15 @@ func main() {
 
 	if err := syscall.Chroot(absRoot); err != nil {
 		fmt.Fprintf(os.Stderr, "chroot: cannot change root to %s: %v\n", absRoot, err)
-		logFatal(fmt.Sprintf("Failed to chroot to %s: %v", absRoot, err))
+		logErr("Failed to chroot to %s: %v", absRoot, err)
 		os.Exit(1)
 	}
-	logInfo(fmt.Sprintf("Changed root to %s", absRoot))
+	logInfo("Changed root to %s", absRoot)
 
 	if !skipChdir {
 		if err := syscall.Chdir("/"); err != nil {
 			fmt.Fprintf(os.Stderr, "chroot: cannot chdir to /: %v\n", err)
-			logWarning(fmt.Sprintf("Failed to chdir to /: %v", err))
+			logWarn("Failed to chdir to /: %v", err)
 			os.Exit(1)
 		}
 		logInfo("Changed directory to /")
@@ -169,7 +215,7 @@ func main() {
 	if mountProc {
 		if err := mount.MountProc(); err != nil {
 			fmt.Fprintf(os.Stderr, "chroot: %v\n", err)
-			logWarning(fmt.Sprintf("Failed to mount proc: %v", err))
+			logWarn("Failed to mount proc: %v", err)
 			os.Exit(1)
 		}
 		logInfo("Mounted proc filesystem")
@@ -188,23 +234,23 @@ func main() {
 		uid, gid, err = user.LookupUserGroup(userPart, groupPart)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "chroot: %v\n", err)
-			logWarning(fmt.Sprintf("User/group lookup failed: %v", err))
+			logWarn("User/group lookup failed: %v", err)
 			os.Exit(1)
 		}
-		logInfo(fmt.Sprintf("Resolved user %s to uid:%d gid:%d", userPart, uid, gid))
+		logInfo("Resolved user %s to uid:%d gid:%d", userPart, uid, gid)
 	}
 	if groups != "" {
 		if userspec == "" {
 			fmt.Fprintln(os.Stderr, "chroot: --groups specified without --userspec, ignoring groups")
-			logWarning("--groups provided without --userspec, ignored")
+			logWarn("--groups provided without --userspec, ignored")
 		} else {
 			gids, err = user.LookupGroups(groups)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "chroot: %v\n", err)
-				logWarning(fmt.Sprintf("Group lookup failed: %v", err))
+				logWarn("Group lookup failed: %v", err)
 				os.Exit(1)
 			}
-			logInfo(fmt.Sprintf("Supplementary groups resolved: %v", gids))
+			logInfo("Supplementary groups resolved: %v", gids)
 		}
 	}
 
@@ -212,30 +258,30 @@ func main() {
 		if gids != nil {
 			if err := syscall.Setgroups(gids); err != nil {
 				fmt.Fprintf(os.Stderr, "chroot: cannot set groups: %v\n", err)
-				logWarning(fmt.Sprintf("Failed to set groups: %v", err))
+				logWarn("Failed to set groups: %v", err)
 				os.Exit(1)
 			}
-			logInfo(fmt.Sprintf("Set supplementary groups: %v", gids))
+			logInfo("Set supplementary groups: %v", gids)
 		} else {
 			if err := syscall.Setgroups([]int{}); err != nil {
 				fmt.Fprintf(os.Stderr, "chroot: cannot clear groups: %v\n", err)
-				logWarning(fmt.Sprintf("Failed to clear groups: %v", err))
+				logWarn("Failed to clear groups: %v", err)
 				os.Exit(1)
 			}
 			logInfo("Cleared supplementary groups")
 		}
 		if err := syscall.Setgid(gid); err != nil {
 			fmt.Fprintf(os.Stderr, "chroot: cannot set gid: %v\n", err)
-			logWarning(fmt.Sprintf("Failed to set gid: %v", err))
+			logWarn("Failed to set gid: %v", err)
 			os.Exit(1)
 		}
-		logInfo(fmt.Sprintf("Set gid to %d", gid))
+		logInfo("Set gid to %d", gid)
 		if err := syscall.Setuid(uid); err != nil {
 			fmt.Fprintf(os.Stderr, "chroot: cannot set uid: %v\n", err)
-			logWarning(fmt.Sprintf("Failed to set uid: %v", err))
+			logWarn("Failed to set uid: %v", err)
 			os.Exit(1)
 		}
-		logInfo(fmt.Sprintf("Set uid to %d", uid))
+		logInfo("Set uid to %d", uid)
 	}
 
 	if !preserveEnv {
@@ -267,10 +313,10 @@ func main() {
 	copy(argv, cmdArgs)
 	argv[0] = cmdPath
 
-	logInfo(fmt.Sprintf("Executing command: %s %v", cmdPath, argv[1:]))
+	logInfo("Executing command: %s %v", cmdPath, argv[1:])
 	if err := syscall.Exec(cmdPath, argv, os.Environ()); err != nil {
 		fmt.Fprintf(os.Stderr, "chroot: failed to exec %s: %v\n", cmdPath, err)
-		log.Printf("Exec failed: %v", err)
+		logErr("Exec failed: %v", err)
 		os.Exit(126)
 	}
 

@@ -12,20 +12,21 @@ import (
 	"strings"
 )
 
-// LookupUserGroup resolves a user and optional group inside the current root.
-// Called after chroot, so /etc/passwd and /etc/group refer to the new root.
-func LookupUserGroup(userSpec, groupSpec string) (uid, gid int, err error) {
+// LookupUserGroupWith resolves a user and optional group using the provided
+// passwd and group file paths. This is testable without touching the real
+// /etc/passwd and /etc/group files.
+func LookupUserGroupWith(passwdPath, groupPath, userSpec, groupSpec string) (uid, gid int, err error) {
 	if u, err := strconv.Atoi(userSpec); err == nil {
 		uid = u
 	} else {
-		uid, err = findUIDByName(userSpec)
+		uid, err = findUIDByNameWith(passwdPath, userSpec)
 		if err != nil {
 			return 0, 0, fmt.Errorf("invalid user %q: %v", userSpec, err)
 		}
 	}
 
 	if groupSpec == "" {
-		gid, err = getPrimaryGID(uid)
+		gid, err = getPrimaryGIDWith(passwdPath, uid)
 		if err != nil {
 			return 0, 0, fmt.Errorf("cannot determine primary group for uid %d: %v", uid, err)
 		}
@@ -33,7 +34,7 @@ func LookupUserGroup(userSpec, groupSpec string) (uid, gid int, err error) {
 		if g, err := strconv.Atoi(groupSpec); err == nil {
 			gid = g
 		} else {
-			gid, err = findGIDByName(groupSpec)
+			gid, err = findGIDByNameWith(groupPath, groupSpec)
 			if err != nil {
 				return 0, 0, fmt.Errorf("invalid group %q: %v", groupSpec, err)
 			}
@@ -43,14 +44,15 @@ func LookupUserGroup(userSpec, groupSpec string) (uid, gid int, err error) {
 	return uid, gid, nil
 }
 
-// LookupGroups resolves a comma-separated list of group names or IDs.
-func LookupGroups(groupList string) ([]int, error) {
+// LookupGroupsWith resolves a comma-separated list of group names or IDs
+// using the provided group file path.
+func LookupGroupsWith(groupPath, groupList string) ([]int, error) {
 	var gids []int
 	for _, grp := range strings.Split(groupList, ",") {
 		if g, err := strconv.Atoi(grp); err == nil {
 			gids = append(gids, g)
 		} else {
-			g, err := findGIDByName(grp)
+			g, err := findGIDByNameWith(groupPath, grp)
 			if err != nil {
 				return nil, fmt.Errorf("group %q not found", grp)
 			}
@@ -60,8 +62,18 @@ func LookupGroups(groupList string) ([]int, error) {
 	return gids, nil
 }
 
-func findUIDByName(name string) (int, error) {
-	f, err := os.Open("/etc/passwd")
+// Convenience wrappers that use the system files.
+func LookupUserGroup(userSpec, groupSpec string) (int, int, error) {
+	return LookupUserGroupWith("/etc/passwd", "/etc/group", userSpec, groupSpec)
+}
+
+func LookupGroups(groupList string) ([]int, error) {
+	return LookupGroupsWith("/etc/group", groupList)
+}
+
+// Internal helpers that operate on provided file paths.
+func findUIDByNameWith(passwdPath, name string) (int, error) {
+	f, err := os.Open(passwdPath)
 	if err != nil {
 		return 0, err
 	}
@@ -84,8 +96,8 @@ func findUIDByName(name string) (int, error) {
 	return 0, fmt.Errorf("user not found")
 }
 
-func findGIDByName(name string) (int, error) {
-	f, err := os.Open("/etc/group")
+func findGIDByNameWith(groupPath, name string) (int, error) {
+	f, err := os.Open(groupPath)
 	if err != nil {
 		return 0, err
 	}
@@ -108,8 +120,8 @@ func findGIDByName(name string) (int, error) {
 	return 0, fmt.Errorf("group not found")
 }
 
-func getPrimaryGID(uid int) (int, error) {
-	f, err := os.Open("/etc/passwd")
+func getPrimaryGIDWith(passwdPath string, uid int) (int, error) {
+	f, err := os.Open(passwdPath)
 	if err != nil {
 		return 0, err
 	}
