@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 AnmiTaliDev <anmitalidev@nuros.org>
-// SPDX-FileCopyrightText: 2026 CosmoBlade <ilovesmetana777@gmail.com>
+// SPDX-FileCopyrightText: 2026 CosmoBlade <C0sm0B14d3@proton.me>
 // SPDX-License-Identifier: GPL-3.0-only
 
 package mount
