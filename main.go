@@ -25,17 +25,22 @@ type devNull struct{}
 func (d *devNull) Write(p []byte) (int, error) { return len(p), nil }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `Usage: %s [OPTION] NEWROOT [COMMAND [ARG]...]
+	fmt.Fprintf(os.Stderr, `Usage: %s [OPTION] [NEWROOT] [COMMAND [ARG]...]
 Run COMMAND with root directory set to NEWROOT.
 
 Options:
+  --target=DIR              new root directory
+  --cmd=COMMAND             command to run inside chroot
+  --enter                   enter chroot after setup
+  --sync=DIR                source directory to sync (placeholder)
+  --archive=FILE            archive file (placeholder)
   --userspec=USER[:GROUP]   specify user and group (ID or name)
   --groups=G_LIST           supplementary groups (comma-separated)
   --skip-chdir              do not change working directory to '/'
   --mount-proc              mount proc filesystem inside NEWROOT
   --preserve-environment    do not clear environment variables
   --loglevel=LEVEL          log verbosity: null|err|warning|info|debug (default: info)
-  --help                    display this help and exit
+  -h, --help                display this help and exit
   --version                 output version information and exit
 
 If COMMAND is not specified, run '/bin/sh'.
