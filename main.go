@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"warproot/src/mount"
 	"warproot/src/user"
@@ -108,6 +109,10 @@ func main() {
 	// Open log file only if not null
 	var logFile *os.File
 	if level != levelNull {
+		if fi, err := os.Stat("latest.log"); err == nil && fi.Size() > 0 {
+			ts := fi.ModTime().Format("20060102-150405")
+			_ = os.Rename("latest.log", fmt.Sprintf("latest-%s.log", ts))
+		}
 		lf, err := os.OpenFile("latest.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
