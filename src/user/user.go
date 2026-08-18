@@ -49,6 +49,10 @@ func LookupUserGroupWith(passwdPath, groupPath, userSpec, groupSpec string) (uid
 func LookupGroupsWith(groupPath, groupList string) ([]int, error) {
 	var gids []int
 	for _, grp := range strings.Split(groupList, ",") {
+		grp = strings.TrimSpace(grp)
+		if grp == "" {
+			continue
+		}
 		if g, err := strconv.Atoi(grp); err == nil {
 			gids = append(gids, g)
 		} else {
