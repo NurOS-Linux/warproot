@@ -1,5 +1,11 @@
 # warproot
 
+> [!NOTE]
+> **Repository Mirrors**
+>
+> - **git.nuros.org** ([utils/warproot](https://git.nuros.org/utils/warproot)): primary, self-hosted Forgejo instance, accounts restricted to the core team.
+> - **GitHub** ([NurOS-Linux/warproot](https://github.com/NurOS-Linux/warproot)): mirror for external contributors. Issues and Pull Requests opened here are welcome and are reviewed and processed by the core team.
+
 A chroot utility.
 
 ## Usage
