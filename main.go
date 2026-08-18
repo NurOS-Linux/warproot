@@ -175,7 +175,7 @@ func main() {
 		}
 	}
 
-	if enter && cmdStr != "" {
+	if cmdStr != "" {
 		cmdArgs = []string{"/bin/sh", "-c", cmdStr}
 		logDebug("Custom command set via -cmd: %s", cmdStr)
 	}
@@ -322,4 +322,5 @@ func main() {
 
 	_ = syncSrc
 	_ = archive
+	_ = enter
 }
