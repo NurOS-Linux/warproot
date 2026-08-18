@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"warproot/src/mount"
 	"warproot/src/user"
@@ -25,17 +26,22 @@ type devNull struct{}
 func (d *devNull) Write(p []byte) (int, error) { return len(p), nil }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `Usage: %s [OPTION] NEWROOT [COMMAND [ARG]...]
+	fmt.Fprintf(os.Stderr, `Usage: %s [OPTION] [NEWROOT] [COMMAND [ARG]...]
 Run COMMAND with root directory set to NEWROOT.
 
 Options:
+  --target=DIR              new root directory
+  --cmd=COMMAND             command to run inside chroot
+  --enter                   enter chroot after setup
+  --sync=DIR                source directory to sync (placeholder)
+  --archive=FILE            archive file (placeholder)
   --userspec=USER[:GROUP]   specify user and group (ID or name)
   --groups=G_LIST           supplementary groups (comma-separated)
   --skip-chdir              do not change working directory to '/'
   --mount-proc              mount proc filesystem inside NEWROOT
   --preserve-environment    do not clear environment variables
   --loglevel=LEVEL          log verbosity: null|err|warning|info|debug (default: info)
-  --help                    display this help and exit
+  -h, --help                display this help and exit
   --version                 output version information and exit
 
 If COMMAND is not specified, run '/bin/sh'.
@@ -103,6 +109,10 @@ func main() {
 	// Open log file only if not null
 	var logFile *os.File
 	if level != levelNull {
+		if fi, err := os.Stat("latest.log"); err == nil && fi.Size() > 0 {
+			ts := fi.ModTime().Format("20060102-150405")
+			_ = os.Rename("latest.log", fmt.Sprintf("latest-%s.log", ts))
+		}
 		lf, err := os.OpenFile("latest.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
@@ -175,7 +185,7 @@ func main() {
 		}
 	}
 
-	if enter && cmdStr != "" {
+	if cmdStr != "" {
 		cmdArgs = []string{"/bin/sh", "-c", cmdStr}
 		logDebug("Custom command set via -cmd: %s", cmdStr)
 	}
@@ -322,4 +332,5 @@ func main() {
 
 	_ = syncSrc
 	_ = archive
+	_ = enter
 }
